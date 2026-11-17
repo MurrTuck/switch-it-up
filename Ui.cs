@@ -1,4 +1,4 @@
-// The "Switch it up" window: dark theme, gradient switch button.
+// The "Switch it up" window: light/dark theme that can follow Windows, gradient switch button.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -9,17 +9,58 @@ using System.Windows.Forms;
 
 namespace MonitorSwitch
 {
+    // Current colors. Apply() swaps between the light and dark sets.
     static class Theme
     {
-        public static readonly Color Back = Color.FromArgb(22, 24, 29);
-        public static readonly Color Field = Color.FromArgb(38, 42, 51);
-        public static readonly Color Border = Color.FromArgb(62, 67, 80);
-        public static readonly Color Text =Color.FromArgb(240, 242, 247);
-        public static readonly Color Muted = Color.FromArgb(139, 146, 160);
+        public static bool IsDark = true;
+        public static Color Back, Field, Button, Border, Text, Muted, Good, Bad;
         public static readonly Color AccentA = Color.FromArgb(124, 92, 255);  // violet
         public static readonly Color AccentB = Color.FromArgb(0, 194, 224);   // cyan
-        public static readonly Color Good = Color.FromArgb(74, 222, 128);
-        public static readonly Color Bad = Color.FromArgb(255, 107, 107);
+
+        static Theme() { Apply(true); }
+
+        public static void Apply(bool dark)
+        {
+            IsDark = dark;
+            if (dark)
+            {
+                Back = Color.FromArgb(22, 24, 29);
+                Field = Color.FromArgb(38, 42, 51);
+                Button = Color.FromArgb(38, 42, 51);
+                Border = Color.FromArgb(62, 67, 80);
+                Text = Color.FromArgb(240, 242, 247);
+                Muted = Color.FromArgb(139, 146, 160);
+                Good = Color.FromArgb(74, 222, 128);
+                Bad = Color.FromArgb(255, 107, 107);
+            }
+            else
+            {
+                Back = Color.FromArgb(244, 245, 249);
+                Field = Color.White;
+                Button = Color.FromArgb(226, 229, 237);
+                Border = Color.FromArgb(205, 210, 221);
+                Text = Color.FromArgb(24, 27, 33);
+                Muted = Color.FromArgb(98, 106, 120);
+                Good = Color.FromArgb(22, 163, 74);
+                Bad = Color.FromArgb(214, 40, 40);
+            }
+        }
+
+        // True when Windows is set to dark mode for apps (Settings > Personalization > Colors).
+        public static bool WindowsUsesDark()
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                {
+                    object v = key == null ? null : key.GetValue("AppsUseLightTheme");
+                    if (v is int) return (int)v == 0;
+                }
+            }
+            catch { }
+            return false; // Windows' own default is light
+        }
     }
 
     // A flat button with rounded corners and a left-to-right gradient fill.
@@ -47,7 +88,7 @@ namespace MonitorSwitch
         Color Shade(Color c)
         {
             if (down) return Blend(c, Color.Black, 0.15f);
-            if (hover) return Blend(c, Color.White, 0.12f);
+            if (hover) return Theme.IsDark ? Blend(c, Color.White, 0.12f) : Blend(c, Color.Black, 0.07f);
             return c;
         }
 
@@ -92,7 +133,7 @@ namespace MonitorSwitch
         }
     }
 
-    // A combo box whose border and drop-down arrow are repainted to match the dark theme.
+    // A combo box whose border and drop-down arrow are repainted to match the current theme.
     class DarkComboBox : ComboBox
     {
         public DarkComboBox()
@@ -216,7 +257,10 @@ namespace MonitorSwitch
         RoundedButton switchButton, refreshButton;
         Label statusDot, statusLabel;
         CheckBox topMostBox;
+        ComboBox appearanceBox;
+        int statusKind; // 0 good, 1 problem, 2 neutral (kept so colors can be redone on theme change)
         bool loading;
+        static readonly string[] AppearanceValues = { "system", "light", "dark" };
         int lastKnownInput = -2;
 
         public MainForm()
@@ -241,7 +285,7 @@ namespace MonitorSwitch
 
             Label subtitle = new Label();
             subtitle.Text = "Flip a monitor between two inputs with one click.";
-            subtitle.ForeColor = Theme.Muted;
+            subtitle.Tag = "muted";
             subtitle.AutoSize = true;
             subtitle.Location = new Point(24, 58);
 
@@ -287,7 +331,7 @@ namespace MonitorSwitch
 
             Label hotkeyHint = new Label();
             hotkeyHint.Text = "Click the box, then press new keys.\nWorks while the app is open.";
-            hotkeyHint.ForeColor = Theme.Muted;
+            hotkeyHint.Tag = "muted";
             hotkeyHint.Font = new Font("Segoe UI", 8.5f);
             hotkeyHint.SetBounds(226, 242, 196, 36);
 
@@ -300,13 +344,30 @@ namespace MonitorSwitch
 
             topMostBox = new CheckBox();
             topMostBox.Text = "Keep this window on top";
-            topMostBox.ForeColor = Theme.Muted;
-            topMostBox.SetBounds(26, 434, 300, 24);
+            topMostBox.Tag = "muted";
+            topMostBox.SetBounds(26, 436, 220, 24);
             topMostBox.CheckedChanged += delegate { TopMost = topMostBox.Checked; if (!loading) SaveFromUi(); };
+
+            Label appearanceLabel = new Label();
+            appearanceLabel.Text = "Theme";
+            appearanceLabel.Tag = "muted";
+            appearanceLabel.TextAlign = ContentAlignment.MiddleRight;
+            appearanceLabel.SetBounds(236, 434, 56, 26);
+            appearanceBox = new DarkComboBox();
+            appearanceBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            appearanceBox.Items.AddRange(new object[] { "Match Windows", "Light", "Dark" });
+            appearanceBox.SetBounds(296, 434, 120, 26);
+            appearanceBox.SelectedIndexChanged += delegate
+            {
+                if (loading || appearanceBox.SelectedIndex < 0) return;
+                settings.Appearance = AppearanceValues[appearanceBox.SelectedIndex];
+                settings.Save();
+                ApplyTheme();
+            };
 
             Controls.AddRange(new Control[] { title, subtitle, monitorLabel, monitorBox, refreshButton, aLabel, inputABox,
                                               bLabel, inputBBox, hotkeyLabel, hotkeyBox, hotkeyHint, switchButton,
-                                              statusDot, statusLabel, topMostBox });
+                                              statusDot, statusLabel, topMostBox, appearanceLabel, appearanceBox });
             AcceptButton = switchButton;
 
             AutoScaleDimensions = new SizeF(96f, 96f);
@@ -318,22 +379,90 @@ namespace MonitorSwitch
             inputABox.Text = Inputs.Label(settings.InputA);
             inputBBox.Text = Inputs.Label(settings.InputB);
             topMostBox.Checked = settings.TopMost;
+            int ai = Array.IndexOf(AppearanceValues, settings.Appearance);
+            appearanceBox.SelectedIndex = ai < 0 ? 0 : ai;
             loading = false;
 
+            ApplyTheme();
             LoadMonitors();
             ShowCurrent();
             ActiveControl = switchButton;
+
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnWindowsSettingChanged;
         }
+
+        // Windows raises this when the light/dark setting (among others) changes.
+        void OnWindowsSettingChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+        {
+            if (e.Category != Microsoft.Win32.UserPreferenceCategory.General) return;
+            if (settings.Appearance != "system" || IsDisposed || !IsHandleCreated) return;
+            BeginInvoke(new MethodInvoker(ApplyTheme));
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnWindowsSettingChanged;
+            base.OnFormClosed(e);
+        }
+
+        void ApplyTheme()
+        {
+            bool dark = settings.Appearance == "dark" ||
+                        (settings.Appearance != "light" && Theme.WindowsUsesDark());
+            Theme.Apply(dark);
+
+            SuspendLayout();
+            BackColor = Theme.Back;
+            ForeColor = Theme.Text;
+            foreach (Control c in Controls)
+            {
+                if (c == switchButton) continue; // the gradient button looks the same in both
+                if (c is RoundedButton)
+                {
+                    RoundedButton b = (RoundedButton)c;
+                    b.FillA = b.FillB = Theme.Button;
+                    b.ForeColor = Theme.Text;
+                }
+                else if (c is ComboBox || c is TextBox)
+                {
+                    c.BackColor = Theme.Field;
+                    c.ForeColor = Theme.Text;
+                }
+                else if ("muted".Equals(c.Tag))
+                {
+                    c.ForeColor = Theme.Muted;
+                }
+                else if (c != statusDot && c != statusLabel)
+                {
+                    c.ForeColor = Theme.Text;
+                }
+            }
+            ColorStatus();
+            ResumeLayout();
+            ApplyTitleBar();
+            Invalidate(true);
+        }
+
+        void ApplyTitleBar()
+        {
+            if (!IsHandleCreated) return;
+            try
+            {
+                int on = Theme.IsDark ? 1 : 0;
+                DwmSetWindowAttribute(Handle, 20, ref on, 4); // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE
+                // Nudge Windows to redraw the title bar now rather than on the next focus change.
+                SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020);
+            }
+            catch { }
+        }
+
+        [DllImport("user32.dll")]
+        static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            try
-            {
-                int on = 1;
-                DwmSetWindowAttribute(Handle, 20, ref on, 4); // dark title bar
-            }
-            catch { }
+            ApplyTitleBar();
             RegisterShortcut(false);
         }
 
@@ -403,7 +532,7 @@ namespace MonitorSwitch
             Label l = new Label();
             l.Text = text;
             l.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
-            l.ForeColor = Theme.Muted;
+            l.Tag = "muted";
             l.AutoSize = true;
             l.Location = new Point(x, y);
             return l;
@@ -504,9 +633,16 @@ namespace MonitorSwitch
 
         void SetStatus(string text, Color color)
         {
-            statusDot.ForeColor = color;
-            statusLabel.ForeColor = color == Theme.Bad ? Theme.Bad : Theme.Text;
+            statusKind = color == Theme.Bad ? 1 : color == Theme.Good ? 0 : 2;
             statusLabel.Text = text;
+            ColorStatus();
+        }
+
+        void ColorStatus()
+        {
+            Color c = statusKind == 0 ? Theme.Good : statusKind == 1 ? Theme.Bad : Theme.Muted;
+            statusDot.ForeColor = c;
+            statusLabel.ForeColor = statusKind == 1 ? Theme.Bad : Theme.Text;
         }
     }
 }

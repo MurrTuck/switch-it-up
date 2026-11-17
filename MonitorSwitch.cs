@@ -284,6 +284,7 @@ namespace MonitorSwitch
         public bool TopMost = false;
         public int HotkeyMods = 3;      // MOD_ALT | MOD_CONTROL
         public int HotkeyKey = 0x53;    // S  (0 = no shortcut)
+        public string Appearance = "system"; // system | light | dark
 
         static string FilePath
         {
@@ -312,6 +313,7 @@ namespace MonitorSwitch
                     else if (k == "topMost") s.TopMost = v == "1";
                     else if (k == "hotkeyMods" && int.TryParse(v, out n)) s.HotkeyMods = n;
                     else if (k == "hotkeyKey" && int.TryParse(v, out n)) s.HotkeyKey = n;
+                    else if (k == "appearance" && (v == "system" || v == "light" || v == "dark")) s.Appearance = v;
                 }
             }
             catch { }
@@ -330,7 +332,8 @@ namespace MonitorSwitch
                     "lastSet=" + LastSet,
                     "topMost=" + (TopMost ? "1" : "0"),
                     "hotkeyMods=" + HotkeyMods,
-                    "hotkeyKey=" + HotkeyKey
+                    "hotkeyKey=" + HotkeyKey,
+                    "appearance=" + Appearance
                 });
             }
             catch { }

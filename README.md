@@ -12,6 +12,8 @@ It talks to the monitor over DDC/CI, the same channel the monitor's own on-scree
 
 **Keyboard shortcut:** while the app is open, **Ctrl + Alt + S** switches from anywhere. To change it, click the shortcut box and press a new combination (it needs Ctrl or Alt); Backspace turns it off.
 
+**Light and dark mode:** by default the app matches Windows' light/dark setting and changes along with it. The **Theme** box at the bottom can lock it to Light or Dark instead.
+
 If the window is on the monitor being switched, it moves itself to the nearest other screen first, so the button stays in view.
 
 Your choices are remembered in `%APPDATA%\MonitorSwitch\settings.txt`.
