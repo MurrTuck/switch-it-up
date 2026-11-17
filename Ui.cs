@@ -122,8 +122,92 @@ namespace MonitorSwitch
         }
     }
 
+    static class Hotkey
+    {
+        public const int ModAlt = 1, ModControl = 2, ModShift = 4;
+
+        public static string Describe(int mods, int key)
+        {
+            if (key == 0) return "None";
+            string s = "";
+            if ((mods & ModControl) != 0) s += "Ctrl + ";
+            if ((mods & ModAlt) != 0) s += "Alt + ";
+            if ((mods & ModShift) != 0) s += "Shift + ";
+            string name = ((Keys)key).ToString();
+            if (name.Length == 2 && name[0] == 'D' && char.IsDigit(name[1])) name = name.Substring(1);
+            return s + name;
+        }
+    }
+
+    // Click it, then press a key combination to record it. Backspace or Delete clears it.
+    class HotkeyBox : TextBox
+    {
+        public int Mods, Key;
+        public event EventHandler HotkeyChanged;
+
+        public HotkeyBox()
+        {
+            ReadOnly = true;
+            BorderStyle = BorderStyle.FixedSingle;
+            BackColor = Theme.Field;
+            ForeColor = Theme.Text;
+            Cursor = Cursors.Hand;
+            ShortcutsEnabled = false;
+        }
+
+        public void SetHotkey(int mods, int key)
+        {
+            Mods = mods;
+            Key = key;
+            Text = Hotkey.Describe(mods, key);
+        }
+
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Text = "Press keys..."; }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Text = Hotkey.Describe(Mods, Key); }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            Keys code = keyData & Keys.KeyCode;
+            Keys mods = keyData & Keys.Modifiers;
+
+            if (code == Keys.Tab && mods == Keys.None) return base.ProcessCmdKey(ref msg, keyData);
+            if (code == Keys.ControlKey || code == Keys.Menu || code == Keys.ShiftKey ||
+                code == Keys.LWin || code == Keys.RWin) return true; // wait for the real key
+
+            if (mods == Keys.None && (code == Keys.Back || code == Keys.Delete))
+            {
+                Mods = 0; Key = 0;
+            }
+            else if ((mods & (Keys.Control | Keys.Alt)) == 0)
+            {
+                Text = "Use Ctrl or Alt with a key";
+                return true;
+            }
+            else
+            {
+                Mods = ((mods & Keys.Control) != 0 ? Hotkey.ModControl : 0) |
+                       ((mods & Keys.Alt) != 0 ? Hotkey.ModAlt : 0) |
+                       ((mods & Keys.Shift) != 0 ? Hotkey.ModShift : 0);
+                Key = (int)code;
+            }
+            Text = Hotkey.Describe(Mods, Key);
+            if (HotkeyChanged != null) HotkeyChanged(this, EventArgs.Empty);
+            if (Parent != null) Parent.SelectNextControl(this, true, true, true, true);
+            return true;
+        }
+    }
+
     class MainForm : Form
     {
+        [DllImport("user32.dll")]
+        static extern bool RegisterHotKey(IntPtr hwnd, int id, uint mods, uint key);
+        [DllImport("user32.dll")]
+        static extern bool UnregisterHotKey(IntPtr hwnd, int id);
+        const int HotkeyId = 1;
+        const int WM_HOTKEY = 0x0312;
+        HotkeyBox hotkeyBox;
+        bool hotkeyRegistered;
+
         [DllImport("dwmapi.dll")]
         static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
@@ -185,29 +269,49 @@ namespace MonitorSwitch
             switchButton.FillA = Theme.AccentA;
             switchButton.FillB = Theme.AccentB;
             switchButton.Radius = 14;
-            switchButton.SetBounds(24, 232, 392, 84);
+            switchButton.SetBounds(24, 292, 392, 84);
             switchButton.Click += delegate { DoSwitch(); };
+
+            Label hotkeyLabel = MakeCaption("KEYBOARD SHORTCUT", 24, 226);
+            hotkeyBox = new HotkeyBox();
+            hotkeyBox.SetBounds(24, 246, 188, 26);
+            hotkeyBox.SetHotkey(settings.HotkeyMods, settings.HotkeyKey);
+            hotkeyBox.GotFocus += delegate { UnregisterShortcut(); };
+            hotkeyBox.LostFocus += delegate { RegisterShortcut(true); };
+            hotkeyBox.HotkeyChanged += delegate
+            {
+                settings.HotkeyMods = hotkeyBox.Mods;
+                settings.HotkeyKey = hotkeyBox.Key;
+                settings.Save();
+            };
+
+            Label hotkeyHint = new Label();
+            hotkeyHint.Text = "Click the box, then press new keys.\nWorks while the app is open.";
+            hotkeyHint.ForeColor = Theme.Muted;
+            hotkeyHint.Font = new Font("Segoe UI", 8.5f);
+            hotkeyHint.SetBounds(226, 242, 196, 36);
 
             statusDot = new Label();
             statusDot.Text = "●";
-            statusDot.SetBounds(24, 330, 18, 40);
+            statusDot.SetBounds(24, 390, 18, 40);
 
             statusLabel = new Label();
-            statusLabel.SetBounds(44, 330, 372, 40);
+            statusLabel.SetBounds(44, 390, 372, 40);
 
             topMostBox = new CheckBox();
             topMostBox.Text = "Keep this window on top";
             topMostBox.ForeColor = Theme.Muted;
-            topMostBox.SetBounds(26, 374, 300, 24);
+            topMostBox.SetBounds(26, 434, 300, 24);
             topMostBox.CheckedChanged += delegate { TopMost = topMostBox.Checked; if (!loading) SaveFromUi(); };
 
             Controls.AddRange(new Control[] { title, subtitle, monitorLabel, monitorBox, refreshButton, aLabel, inputABox,
-                                              bLabel, inputBBox, switchButton, statusDot, statusLabel, topMostBox });
+                                              bLabel, inputBBox, hotkeyLabel, hotkeyBox, hotkeyHint, switchButton,
+                                              statusDot, statusLabel, topMostBox });
             AcceptButton = switchButton;
 
             AutoScaleDimensions = new SizeF(96f, 96f);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(440, 412);
+            ClientSize = new Size(440, 472);
             ResumeLayout(false);
 
             loading = true;
@@ -230,6 +334,68 @@ namespace MonitorSwitch
                 DwmSetWindowAttribute(Handle, 20, ref on, 4); // dark title bar
             }
             catch { }
+            RegisterShortcut(false);
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            UnregisterShortcut();
+            base.OnHandleDestroyed(e);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_HOTKEY && (int)m.WParam == HotkeyId) DoSwitch();
+            base.WndProc(ref m);
+        }
+
+        void RegisterShortcut(bool report)
+        {
+            UnregisterShortcut();
+            if (settings.HotkeyKey == 0)
+            {
+                if (report) SetStatus("Keyboard shortcut turned off.", Theme.Muted);
+                return;
+            }
+            // 0x4000 = MOD_NOREPEAT: holding the keys down switches only once
+            hotkeyRegistered = RegisterHotKey(Handle, HotkeyId, (uint)settings.HotkeyMods | 0x4000, (uint)settings.HotkeyKey);
+            string name = Hotkey.Describe(settings.HotkeyMods, settings.HotkeyKey);
+            if (!hotkeyRegistered)
+                SetStatus(name + " is already used by another program. Pick a different shortcut.", Theme.Bad);
+            else if (report)
+                SetStatus("Press " + name + " to switch.", Theme.Good);
+        }
+
+        void UnregisterShortcut()
+        {
+            if (hotkeyRegistered && IsHandleCreated) UnregisterHotKey(Handle, HotkeyId);
+            hotkeyRegistered = false;
+        }
+
+        // If this window is on the monitor about to be switched, move it to the nearest other
+        // screen so the button stays visible.
+        void MoveOffSwitchedMonitor()
+        {
+            MonitorInfo target = monitorBox.SelectedItem as MonitorInfo;
+            if (target == null || WindowState != FormWindowState.Normal) return;
+            if (Screen.FromControl(this).Bounds != target.Bounds) return;
+
+            Point here = new Point(Left + Width / 2, Top + Height / 2);
+            Screen best = null;
+            double bestDist = double.MaxValue;
+            foreach (Screen s in Screen.AllScreens)
+            {
+                if (s.Bounds == target.Bounds) continue;
+                Rectangle b = s.Bounds;
+                double dx = b.Left + b.Width / 2 - here.X, dy = b.Top + b.Height / 2 - here.Y;
+                double dist = dx * dx + dy * dy;
+                if (dist < bestDist) { bestDist = dist; best = s; }
+            }
+            if (best == null) return; // no other screen to go to
+
+            Rectangle wa = best.WorkingArea;
+            Location = new Point(wa.Left + Math.Max(0, (wa.Width - Width) / 2),
+                                 wa.Top + Math.Max(0, (wa.Height - Height) / 2));
         }
 
         Label MakeCaption(string text, int x, int y)
@@ -326,6 +492,7 @@ namespace MonitorSwitch
                 SetStatus("Input A and Input B are the same.", Theme.Bad);
                 return;
             }
+            MoveOffSwitchedMonitor();
             Cursor = Cursors.WaitCursor;
             bool ok;
             string msg = Switcher.Toggle(settings, out ok);

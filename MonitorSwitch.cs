@@ -282,6 +282,8 @@ namespace MonitorSwitch
         public int InputB = 17;   // HDMI 1
         public int LastSet = 0;
         public bool TopMost = false;
+        public int HotkeyMods = 3;      // MOD_ALT | MOD_CONTROL
+        public int HotkeyKey = 0x53;    // S  (0 = no shortcut)
 
         static string FilePath
         {
@@ -308,6 +310,8 @@ namespace MonitorSwitch
                     else if (k == "inputB" && int.TryParse(v, out n)) s.InputB = n;
                     else if (k == "lastSet" && int.TryParse(v, out n)) s.LastSet = n;
                     else if (k == "topMost") s.TopMost = v == "1";
+                    else if (k == "hotkeyMods" && int.TryParse(v, out n)) s.HotkeyMods = n;
+                    else if (k == "hotkeyKey" && int.TryParse(v, out n)) s.HotkeyKey = n;
                 }
             }
             catch { }
@@ -324,7 +328,9 @@ namespace MonitorSwitch
                     "inputA=" + InputA,
                     "inputB=" + InputB,
                     "lastSet=" + LastSet,
-                    "topMost=" + (TopMost ? "1" : "0")
+                    "topMost=" + (TopMost ? "1" : "0"),
+                    "hotkeyMods=" + HotkeyMods,
+                    "hotkeyKey=" + HotkeyKey
                 });
             }
             catch { }
